@@ -1,0 +1,189 @@
+---
+title: "Toy Horse Main File"
+author: "TEAM G"
+date: "12/8/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load the data and any libraries as well as sourcing any .R software files. You should source your ConjointCode.R file
+
+```{r loadData}
+##Insert code to load the data here
+ load("GBA424 Fall 2020 - Toy Horse Case Data.Rdata")
+```
+
+
+\section{Part A: Regressions}
+Include here analysis that produces the part-utilities at the individual level. These will be data to pass to part B. In addition, use these estimates to do the predictions of the missing profiles and to create a complete set of profile ratings to be used in part D. 
+
+```{r individualLevelRegressions}
+###Insert code here
+atts = c("Price","Size","motion","style")
+df <- conjointData[, -2]
+partworths = matrix(nrow=200, ncol=5) # 200 individual 
+for(i in 1:200){
+  partworths[i,]=lm(ratings~price+size+motion+style, data=df,subset=ID==i)$coef
+}
+colnames(partworths) = c("Intercept", atts)
+
+##predict missing cells (preparing for market simulation)
+##repeat individual level partworths for multiplication
+df2 = conjointData[, -c(1:3)]
+df2 = cbind(rep(1,nrow(df2)), df2)
+partworths.full = matrix(rep(partworths,each=16), ncol=5)
+pratings = rowSums(df2*partworths.full)
+ratings = conjointData$ratings 
+finalratings = ifelse(is.na(ratings),pratings,ratings); #combining actual and predicted ratings
+conjointData$ratings = finalratings
+head(conjointData)
+
+```
+
+\section{Part B: Post-hoc Segmentation}
+
+In this section, wse cluster analysis on the part-utilities (including the constant) to identify the best post-hoc segmentation scheme. Test at least two cluster analysis schemes (i.e., number of clusters) and select the best one in your view. Justify this decision. Then profile the segments in the chosen scheme and identify the ideal product for each segment. See if you can identify any other strategic issues arising from the segmentation (e.g., menu pricing opportunities, competitive considerations, target/customization).
+
+```{r postHocSegmentation}
+##Insert code here
+# pca analysis 
+pca <- prcomp(partworths, center = TRUE, scale. = TRUE)
+summary(pca)
+library(factoextra)
+fviz_eig(pca)
+fviz_pca_ind(pca,col.ind = "cos2", repel = TRUE) # split into 3 clusters 
+fviz_pca_var(pca, col.var = "contrib", repel = TRUE )  # dim1 is price, dim 2 about size, style and motion 
+fviz_pca_biplot(pca, repel = TRUE, col.var = "#2E9FDF", col.ind ="#696969")
+
+# k means cluster analysis 
+set.seed(12345)   # set random number seed before doing cluster analysis
+toClust = partworths
+source("functions_case.R")
+tmp = clustTest(toClust)
+tmp 
+
+clusts = runClusts(toClust,2:3)
+plotClust(clusts$kms[[1]],toClust)
+plotClust(clusts$kms[[2]],toClust)
+```
+
+
+
+Provide comments about the results here.
+
+\section{Part C: A Priori Segmentation}
+
+Conduct a priori segmentation analyses using the variables gender and age in order to profile the attribute preferences based on these variables (use segment-level regressions). Test whether these a priori segmentation variables affect the part-utilities. What does this test tell you about these as segmentation schemes? If the differences are meaningful, profile the segment-level attribute preferences and identify the ideal product for each of the relevant a priori segments. See if you can identify any other strategic issues arising from the segmentation (e.g., menu pricing opportunities, competitive considerations, target/customization).
+
+```{r aPrioriSegmentation}
+##Provide code here
+
+df$age <- rep(respondentData$age,each=16)
+df$gender<- rep(respondentData$gender,each=16)
+summary(lm(ratings~(price+size+motion+style)*age, data=df))
+summary(lm(ratings~(price+size+motion+style)*gender, data=df))
+
+summary(lm(ratings~price+size+motion+style,data = df,subset=age==1)) # 3-4 yr
+summary(lm(ratings~price+size+motion+style,data = df,subset=age==0)) #2 yr
+
+summary(lm(ratings~price+size+motion+style,data = df,subset=gender==1)) # girl style--glamorous  
+summary(lm(ratings~price+size+motion+style,data = df,subset=gender==0)) # boy，racing, more price sensitive 
+
+```
+
+Provide comments about the results here.
+
+\section{Part D: Market Simulation}
+
+Use disaggregate analysis with a first choice rule to forecast market shares for a decision-relevant set of scenarios. Using these market shares and the information about costs in the case, calculate profitability for each product in the product line as well as the overall profitability for the firm and competition. You should present at least 4 scenarios that try to identify the best possible product line strategy (policy) given considerations related to competitive response, cannibalization, profitability, and long-run profitability. Be sure to briefly justify why you chose the scenarios you chose to analyze!
+
+
+```{r marketSimulation}
+df3 <- conjointData[,1:3]
+profile_16<- reshape(df3, idvar = "ID", timevar = "profile", direction = "wide")
+profile_16 <- profile_16[,-1]
+colnames(profile_16) = c(1:16)
+data <- -round(profile_16[,1:16]) #negative
+
+scens = list()  
+scens[[1]] = c(5,7,13) #  status quo 
+scens[[2]]= c(5,7,13,15)  # add 26', rocking glamour, 34% cluster, 13 can be removed 
+scens[[3]] = c(3,5,7,11,13) # add 26' bouncing, boy, older kids,higher price 
+scens[[4]] = c(6,7,14)   # lower price for the 2 existing products 
+scens[[5]]= c(4,6,8)    # if competitor lower its price (8), attract price sensitive consumer, add bouncing racing, lower P5 price  
+scens[[6]]= c(5,7,15)     #  rocking glamour switch to 26', similar to scen2 
+scens[[7]] = c(3,5,7,15) #remove 13, add 3,15 
+scens[[8]] = c(3,5,8,15) # if competitor lower to 8
+scens[[9]] = c(4,6,8,16) # competitor 
+source("functions_case5.R")
+
+# market shares in different scenarios 
+simFCShares(scens[[8]], data)
+simFCShares(scens[[8]], data)
+
+#put all scenarios and different market shares into a matrix 
+simulate <- simScenarios(scens,data)
+
+#  profit 
+simProfit = function(scen, data, myProds, prices, vcosts,fcosts,startcosts,mktsize=1){
+  mktshr = simFCShares(scen,data);
+  vprofit = mktshr * (prices-vcosts)*mktsize;
+  sum(vprofit[myProds])-fcosts-startcosts
+}
+# 5 years profit 
+simProfit_5 = function(scen, data, myProds, prices, vcosts,fcosts,startcosts,mktsize=1){
+  mktshr = simFCShares(scen,data);
+  vprofit = 5*mktshr * (prices-vcosts)*mktsize;
+  sum(vprofit[myProds])-5*fcosts-startcosts
+}
+
+simProf1 <- simProfit(scens[[1]],data,c(1,3),c(139.99,139.99,139.99),c(33,41,33),40000,0,4000)
+comProf1<- simProfit(scens[[1]],data,c(2),c(139.99,139.99,139.99),c(33,41,33),20000,0,4000)
+simProf2 <- simProfit(scens[[2]],data,c(1,3,4),c(139.99,139.99,139.99,139.99),c(33,41,33,41),60000,7000,4000)
+comProf2 <- simProfit(scens[[2]],data,c(2),c(139.99,139.99,139.99,139.99),c(33,41,33,41),20000,0,4000)
+simProf3 <- simProfit(scens[[3]],data,c(1,2,4,5),c(139.99,139.99,139.99,139.99,139.99),c(29,33,41,29,33),80000,14000,4000)
+comProf3 <- simProfit(scens[[3]],data,c(3),c(139.99,139.99,139.99,139.99,139.99),c(29,33,41,29,33),20000,0,4000)
+simProf4 <- simProfit(scens[[4]],data,c(1,3),c(119.99,139.99,119.99),c(33,41,33),40000,0,4000)
+comProf4 <- simProfit(scens[[4]],data,c(2),c(119.99,139.99,119.99),c(33,41,33),20000,0,4000)
+simProf5 <- simProfit(scens[[5]],data,c(1,2),c(119.99,119.99,119.99),c(29,33,41),40000,7000,4000)
+comProf5 <- simProfit(scens[[5]],data,c(3),c(119.99,119.99,119.99),c(29,33,41),20000,0,4000)
+simProf6 <- simProfit(scens[[6]],data,c(1,3),c(139.99,139.99,139.99),c(33,41,41),40000,7000,4000)
+comProf6 <- simProfit(scens[[6]],data,c(2),c(139.99,139.99,139.99),c(33,41,41),20000,0,4000)
+simProf7 <- simProfit(scens[[7]],data,c(1,2,4),c(139.99,139.99,139.99,139.99),c(29,33,41,41),60000,14000,4000)
+comProf7 <- simProfit(scens[[7]],data,c(3),c(139.99,139.99,139.99,139.99),c(29,33,41,41),20000,0,4000)
+simProf8 <- simProfit(scens[[8]],data,c(1,2,4),c(139.99,139.99,119.99,139.99),c(29,33,41,41),60000,14000,4000)
+comProf8 <- simProfit(scens[[8]],data,c(3),c(139.99,139.99,119.99,139.99),c(29,33,41,41),20000,0,4000)
+simProf9 <- simProfit(scens[[9]],data,c(1,2,4),c(119.99,119.99,119.99,119.99),c(29,33,41,41),60000,14000,4000)
+comProf9 <- simProfit(scens[[9]],data,c(3),c(119.99,119.99,119.99,119.99),c(29,33,41,41),20000,0,4000)
+
+
+# profit of earlyride and competitor 
+profits <- data.frame(simProf1,simProf2,simProf3,simProf4,simProf5,simProf6,simProf7,simProf8,simProf9)
+profits[2,] <- c(comProf1, comProf2, comProf3, comProf4, comProf5, comProf6, comProf7,comProf8,comProf9)
+
+# 5yr profit 
+simProf1_5 <- simProfit_5(scens[[1]],data,c(1,3),c(139.99,139.99,139.99),c(33,41,33),40000,0,4000)
+comProf1_5<- simProfit_5(scens[[1]],data,c(2),c(139.99,139.99,139.99),c(33,41,33),20000,0,4000)
+simProf2_5 <- simProfit_5(scens[[2]],data,c(1,3,4),c(139.99,139.99,139.99,139.99),c(33,41,33,41),60000,7000,4000)
+comProf2_5 <- simProfit_5(scens[[2]],data,c(2),c(139.99,139.99,139.99,139.99),c(33,41,33,41),20000,0,4000)
+simProf3_5 <- simProfit_5(scens[[3]],data,c(1,2,4,5),c(139.99,139.99,139.99,139.99,139.99),c(29,33,41,29,33),80000,14000,4000)
+comProf3_5 <- simProfit_5(scens[[3]],data,c(3),c(139.99,139.99,139.99,139.99,139.99),c(29,33,41,29,33),20000,0,4000)
+simProf4_5 <- simProfit_5(scens[[4]],data,c(1,3),c(119.99,139.99,119.99),c(33,41,33),40000,0,4000)
+comProf4_5 <- simProfit_5(scens[[4]],data,c(2),c(119.99,139.99,119.99),c(33,41,33),20000,0,4000)
+simProf5_5<- simProfit_5(scens[[5]],data,c(1,2),c(119.99,119.99,119.99),c(29,33,41),40000,7000,4000)
+comProf5_5 <- simProfit_5(scens[[5]],data,c(3),c(119.99,119.99,119.99),c(29,33,41),20000,0,4000)
+simProf6_5 <- simProfit_5(scens[[6]],data,c(1,3),c(139.99,139.99,139.99),c(33,41,41),40000,7000,4000)
+comProf6_5 <- simProfit_5(scens[[6]],data,c(2),c(139.99,139.99,139.99),c(33,41,41),20000,0,4000)
+simProf7_5 <- simProfit_5(scens[[7]],data,c(1,2,4),c(139.99,139.99,139.99,139.99),c(29,33,41,41),60000,14000,4000)
+comProf7_5 <- simProfit_5(scens[[7]],data,c(3),c(139.99,139.99,139.99,139.99),c(29,33,41,41),20000,0,4000)
+
+profits_5 <- data.frame(simProf1_5,simProf2_5,simProf3_5,simProf4_5,simProf5_5,simProf6_5,simProf7_5)
+profits_5[2,] <- c(comProf1_5, comProf2_5, comProf3_5, comProf4_5, comProf5_5, comProf6_5, comProf7_5)
+
+```
+Scenario 7 has the highest profit for earlybirds, with 94% market share in total and profit of $324762.4 for the first year. we suggest to add P15 and P3 to existing product line and remove P13 product, 26'' bounce racing and 26'' rocking glamour would attract more consuemrs than P13 and not canibalize too mych of P5's market share. 
+
+Provide justification for and comments about the scenario outcomes here and the policy you are recommending here. 
